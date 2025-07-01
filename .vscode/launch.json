@@ -12,7 +12,7 @@
             "module": "streamlit",
             "args": [
                 "run",
-                "${workspaceFolder}\\main.py"
+                "${workspaceFolder}/src/main.py"
             ],
             "justMyCode": true,
         },

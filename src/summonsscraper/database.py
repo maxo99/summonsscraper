@@ -6,7 +6,8 @@ import os
 
 from summonsscraper.model import Case, Query, SearchQuery
 
-CASES_DB =f"data{os.sep}case_data.db"
+CASES_DB = f"data{os.sep}case_data.db"
+
 
 # Database Setup
 def init_database():

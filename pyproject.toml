@@ -4,11 +4,12 @@ version = "0.0.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "boto3>=1.39.0",
-    "pydantic>=2.11.7",
-    "streamlit>=1.46.0",
-]
+dependencies = ["pydantic>=2.11.7"]
+
+[project.optional-dependencies]
+streamlit = ["streamlit>=1.46.0"]
+lambda = ["boto3>=1.39.0", "selenium>=4.34.0"]
+
 
 [build-system]
 requires = ["setuptools>=42"]
