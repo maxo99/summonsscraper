@@ -20,8 +20,9 @@ async def trigger_lambda_function(query: Query) -> str:
         # Mock implementation - replace with actual AWS Lambda trigger
         lambda_payload = {
             "county": query.county,
-            "searches": [s.dict() for s in query.searches],
+            "searches": [s.model_dump() for s in query.searches],
         }
+        assert lambda_payload
 
         # Simulate AWS Step Function ARN
         step_function_arn = (
@@ -285,6 +286,8 @@ def view_cases_page():
     filtered_df = df.copy()
     if business_filter != "All":
         filtered_df = filtered_df[filtered_df["Business"] == business_filter]
+    if county_filter != "All":
+        filtered_df = filtered_df[filtered_df["County"] == county_filter]
     if status_filter != "All":
         filtered_df = filtered_df[filtered_df["Case Status"] == status_filter]
     if user_status_filter != "All":
@@ -292,7 +295,8 @@ def view_cases_page():
             filtered_df = filtered_df[filtered_df["User Status"] == "None"]
         else:
             filtered_df = filtered_df[filtered_df["User Status"] == user_status_filter]
-
+    
+    
     # Display interactive dataframe with multi-row selection
     st.subheader(f"Cases ({len(filtered_df)} total)")
 
@@ -351,7 +355,7 @@ def view_cases_page():
                     ]
                     # Group by business and create reload query
                     st.info(
-                        f"Reload functionality for {len(selected_cases)} cases would be triggered here"
+                        f"Reload functionality for {len(selected_case_objects)} cases would be triggered here"
                     )
         else:
             st.info("Select cases from the table above to perform actions")
@@ -388,7 +392,7 @@ def query_status_page():
                     )
 
             # Mock case loading (replace with actual Step Function status check)
-            if st.button(f"Load Sample Cases", key=f"load_{query.id}"):
+            if st.button("Load Sample Cases", key=f"load_{query.id}"):
                 # Generate sample cases for demonstration
                 sample_cases = [
                     Case(

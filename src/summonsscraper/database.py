@@ -2,109 +2,103 @@ import sqlite3
 import json
 from datetime import datetime
 from typing import List
+import os
 
 from summonsscraper.model import Case, Query, SearchQuery
 
+CASES_DB =f"data{os.sep}case_data.db"
+
 # Database Setup
 def init_database():
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
 
-    # Create queries table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS queries (
-            id TEXT PRIMARY KEY,
-            county TEXT NOT NULL,
-            searches TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            status TEXT NOT NULL,
-            step_function_arn TEXT
-        )
-    """)
+        # Create queries table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS queries (
+                id TEXT PRIMARY KEY,
+                county TEXT NOT NULL,
+                searches TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                status TEXT NOT NULL,
+                step_function_arn TEXT
+            )
+        """)
 
-    # Create cases table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS cases (
-            caseId TEXT PRIMARY KEY,
-            business TEXT NOT NULL,
-            filingDate TEXT NOT NULL,
-            defendant TEXT NOT NULL,
-            caseName TEXT,
-            loaded TEXT NOT NULL,
-            caseStatus TEXT NOT NULL,
-            addresses TEXT NOT NULL,
-            other TEXT NOT NULL,
-            query_id TEXT NOT NULL,
-            user_status TEXT,
-            FOREIGN KEY (query_id) REFERENCES queries (id)
-        )
-    """)
+        # Create cases table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cases (
+                caseId TEXT PRIMARY KEY,
+                business TEXT NOT NULL,
+                filingDate TEXT NOT NULL,
+                defendant TEXT NOT NULL,
+                caseName TEXT,
+                loaded TEXT NOT NULL,
+                caseStatus TEXT NOT NULL,
+                addresses TEXT NOT NULL,
+                other TEXT NOT NULL,
+                query_id TEXT NOT NULL,
+                user_status TEXT,
+                FOREIGN KEY (query_id) REFERENCES queries (id)
+            )
+        """)
 
-    conn.commit()
-    conn.close()
+        conn.commit()
 
 
 # Database Operations
 def save_query(query: Query):
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO queries 
-        (id, county, searches, timestamp, status, step_function_arn)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """,
-        (
-            query.id,
-            query.county,
-            json.dumps([s.dict() for s in query.searches]),
-            query.timestamp.isoformat(),
-            query.status,
-            query.step_function_arn,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO queries 
+            (id, county, searches, timestamp, status, step_function_arn)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """,
+            (
+                query.id,
+                query.county,
+                json.dumps([s.dict() for s in query.searches]),
+                query.timestamp.isoformat(),
+                query.status,
+                query.step_function_arn,
+            ),
+        )
+        conn.commit()
 
 
 def save_case(case: Case):
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO cases 
-        (caseId, business, filingDate, defendant, caseName, loaded, caseStatus, addresses, other, query_id, user_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            case.caseId,
-            case.business,
-            case.filingDate.isoformat(),
-            case.defendant,
-            case.caseName,
-            case.loaded.isoformat(),
-            case.caseStatus,
-            json.dumps(case.addresses),
-            json.dumps(case.other),
-            case.query_id,
-            case.user_status,
-        ),
-    )
-
-    conn.commit()
-    conn.close()
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO cases 
+            (caseId, business, filingDate, defendant, caseName, loaded, caseStatus, addresses, other, query_id, user_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+            (
+                case.caseId,
+                case.business,
+                case.filingDate.isoformat(),
+                case.defendant,
+                case.caseName,
+                case.loaded.isoformat(),
+                case.caseStatus,
+                json.dumps(case.addresses),
+                json.dumps(case.other),
+                case.query_id,
+                case.user_status,
+            ),
+        )
+        conn.commit()
 
 
 def get_all_cases() -> List[Case]:
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM cases")
-    rows = cursor.fetchall()
-    conn.close()
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM cases")
+        rows = cursor.fetchall()
 
     cases = []
     for row in rows:
@@ -128,12 +122,10 @@ def get_all_cases() -> List[Case]:
 
 
 def get_queries() -> List[Query]:
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM queries")
-    rows = cursor.fetchall()
-    conn.close()
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM queries")
+        rows = cursor.fetchall()
 
     queries = []
     for row in rows:
@@ -153,16 +145,12 @@ def get_queries() -> List[Query]:
 
 
 def update_case_user_status(case_id: str, status: str):
-    conn = sqlite3.connect("case_data.db")
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        UPDATE cases SET user_status = ? WHERE caseId = ?
-    """,
-        (status, case_id),
-    )
-
-    conn.commit()
-    conn.close()
-
+    with sqlite3.connect(CASES_DB) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            UPDATE cases SET user_status = ? WHERE caseId = ?
+        """,
+            (status, case_id),
+        )
+        conn.commit()
