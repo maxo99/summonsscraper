@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List
 import os
 
-from summonsscraper.model import Case, Query, SearchQuery
+from core.model import Case, Query, SearchQuery
 
 CASES_DB = f"data{os.sep}case_data.db"
 

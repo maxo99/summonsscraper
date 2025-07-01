@@ -4,8 +4,8 @@ import uuid
 from datetime import datetime, date
 import asyncio
 
-from summonsscraper.database import get_all_cases, get_queries, init_database, save_case, save_query, update_case_user_status
-from summonsscraper.model import Case, Query, SearchQuery
+from core.database import get_all_cases, get_queries, init_database, save_case, save_query, update_case_user_status
+from core.model import Case, Query, SearchQuery
 
 
 

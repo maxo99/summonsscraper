@@ -1,4 +1,4 @@
-FROM amazon/aws-lambda-python:3.11
+FROM amazon/aws-lambda-python:3.11-2024.01.30.10
 
 # Update package manager and install chrome dependencies
 RUN yum update -y && yum install -y \
@@ -8,18 +8,16 @@ RUN yum update -y && yum install -y \
     xorg-x11-xauth dbus-glib dbus-glib-devel nss mesa-libgbm jq unzip
 
 # Copy and run the chrome installer script
-COPY ./src/lambda_service ./src/lambda_service
-COPY ./src/summonsscraper ./src/summonsscraper
-RUN chmod +x ./src/lambda_service/chrome-installer.sh
-RUN ./src/lambda_service/chrome-installer.sh
-RUN rm ./src/lambda_service/chrome-installer.sh
+COPY ./src/webscraper ./src/webscraper
+COPY ./src/core ./src/core
+RUN chmod +x ./src/webscraper/chrome-installer.sh
+RUN ./src/webscraper/chrome-installer.sh
+RUN rm ./src/webscraper/chrome-installer.sh
 
 # Install dependencies using uv
 COPY pyproject.toml ./
 RUN pip install uv && \
-    uv pip install --system ".[lambda]"
-
-
+    uv pip install --system ".[webscraper]"
 
 # Command to run the Lambda function
-CMD [ "src.lambda_service.handler.lambda_handler" ]
+CMD [ "src.webscraper.handler.lambda_handler" ]
