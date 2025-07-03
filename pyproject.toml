@@ -4,14 +4,12 @@ version = "0.0.0"
 description = ""
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.11.7"]
+dependencies = ["pydantic>=2.11.7", "boto3>=1.39.0"]
 
 [project.optional-dependencies]
-ui = [
-    "streamlit>=1.46.1",
-]
+ui = ["streamlit>=1.46.1"]
 webscraper = ["boto3>=1.39.0", "selenium>=4.34.0"]
-pdf-parser = ["boto3>=1.39.0", "PyPDF2>=3.0.0", "pdfplumber>=0.10.0"]
+pdf_parser = ["boto3>=1.39.0", "PyPDF2>=3.0.0", "pdfplumber>=0.10.0"]
 
 
 [build-system]
@@ -20,7 +18,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ['src']
-include = ['core*', 'ui*', 'webscraper*', 'pdf-parser*']
+include = ['core*', 'ui*', 'webscraper*', 'pdf_parser*']
 
 [tool.uv.workspace]
 members = ["summonsscraper"]
@@ -46,11 +44,16 @@ log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-version_variables = ["src/summonsscraper/__init__.py:__version__"]
+version_variables = [
+    "src/core/__init__.py:__version__",
+    "src/ui/__init__.py:__version__",
+    "src/webscraper/__init__.py:__version__",
+    "src/pdf_parser/__init__.py:__version__",
+]
 branch = "main"
 upload_to_pypi = false
 upload_to_release = true
-build_command = "pip install uv && uv build"
+build_command = "echo 'Containers built separately in CI/CD'"
 tag_format = "v{version}"
 major_on_zero = false
 allow_zero_version = true

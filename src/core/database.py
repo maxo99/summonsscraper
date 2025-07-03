@@ -3,14 +3,30 @@ import json
 from datetime import datetime
 from typing import List
 import os
+import boto3
+from botocore.exceptions import ClientError
 
 from core.model import Case, Query, SearchQuery
 
+# Determine which database to use based on environment
+USE_DYNAMODB = os.getenv('DYNAMODB_TABLE_NAME') is not None
 CASES_DB = f"data{os.sep}case_data.db"
+DYNAMODB_TABLE = os.getenv('DYNAMODB_TABLE_NAME', 'summonsscraper-case-data-dev')
+AWS_REGION = os.getenv('APP_AWS_REGION') or os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+
+# Initialize DynamoDB client if needed
+if USE_DYNAMODB:
+    dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
+    cases_table = dynamodb.Table(DYNAMODB_TABLE)
 
 
 # Database Setup
 def init_database():
+    if USE_DYNAMODB:
+        # DynamoDB tables are created by OpenTofu
+        return
+    
+    # SQLite setup for local development
     with sqlite3.connect(CASES_DB) as conn:
         cursor = conn.cursor()
 
@@ -49,109 +65,214 @@ def init_database():
 
 # Database Operations
 def save_query(query: Query):
-    with sqlite3.connect(CASES_DB) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO queries 
-            (id, county, searches, timestamp, status, step_function_arn)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """,
-            (
-                query.id,
-                query.county,
-                json.dumps([s.dict() for s in query.searches]),
-                query.timestamp.isoformat(),
-                query.status,
-                query.step_function_arn,
-            ),
-        )
-        conn.commit()
+    if USE_DYNAMODB:
+        try:
+            # Store in DynamoDB queries table (you may want a separate table for this)
+            # For now, we'll store queries in the same table with a different partition key pattern
+            item = {
+                'caseId': f"QUERY#{query.id}",
+                'query_id': query.id,
+                'county': query.county,
+                'searches': [s.dict() for s in query.searches],
+                'timestamp': query.timestamp.isoformat(),
+                'status': query.status,
+                'step_function_arn': query.step_function_arn,
+                'item_type': 'query'
+            }
+            cases_table.put_item(Item=item)
+        except ClientError as e:
+            print(f"Error saving query to DynamoDB: {e}")
+    else:
+        # SQLite implementation
+        with sqlite3.connect(CASES_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO queries 
+                (id, county, searches, timestamp, status, step_function_arn)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    query.id,
+                    query.county,
+                    json.dumps([s.dict() for s in query.searches]),
+                    query.timestamp.isoformat(),
+                    query.status,
+                    query.step_function_arn,
+                ),
+            )
+            conn.commit()
 
 
 def save_case(case: Case):
-    with sqlite3.connect(CASES_DB) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO cases 
-            (caseId, business, filingDate, defendant, caseName, loaded, caseStatus, addresses, other, query_id, user_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                case.caseId,
-                case.business,
-                case.filingDate.isoformat(),
-                case.defendant,
-                case.caseName,
-                case.loaded.isoformat(),
-                case.caseStatus,
-                json.dumps(case.addresses),
-                json.dumps(case.other),
-                case.query_id,
-                case.user_status,
-            ),
-        )
-        conn.commit()
+    if USE_DYNAMODB:
+        try:
+            item = {
+                'caseId': case.caseId,
+                'business': case.business,
+                'filingDate': case.filingDate.isoformat(),
+                'defendant': case.defendant,
+                'caseName': case.caseName,
+                'loaded': case.loaded.isoformat(),
+                'caseStatus': case.caseStatus,
+                'addresses': case.addresses,
+                'other': case.other,
+                'query_id': case.query_id,
+                'user_status': case.user_status,
+                'item_type': 'case'
+            }
+            cases_table.put_item(Item=item)
+        except ClientError as e:
+            print(f"Error saving case to DynamoDB: {e}")
+    else:
+        # SQLite implementation
+        with sqlite3.connect(CASES_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO cases 
+                (caseId, business, filingDate, defendant, caseName, loaded, caseStatus, addresses, other, query_id, user_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    case.caseId,
+                    case.business,
+                    case.filingDate.isoformat(),
+                    case.defendant,
+                    case.caseName,
+                    case.loaded.isoformat(),
+                    case.caseStatus,
+                    json.dumps(case.addresses),
+                    json.dumps(case.other),
+                    case.query_id,
+                    case.user_status,
+                ),
+            )
+            conn.commit()
 
 
 def get_all_cases() -> List[Case]:
-    with sqlite3.connect(CASES_DB) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM cases")
-        rows = cursor.fetchall()
-
-    cases = []
-    for row in rows:
-        cases.append(
-            Case(
-                caseId=row[0],
-                business=row[1],
-                filingDate=datetime.fromisoformat(row[2]).date(),
-                defendant=row[3],
-                caseName=row[4],
-                loaded=datetime.fromisoformat(row[5]).date(),
-                caseStatus=row[6],
-                addresses=json.loads(row[7]),
-                other=json.loads(row[8]),
-                query_id=row[9],
-                user_status=row[10],
+    if USE_DYNAMODB:
+        try:
+            response = cases_table.scan(
+                FilterExpression='item_type = :item_type',
+                ExpressionAttributeValues={':item_type': 'case'}
             )
-        )
+            
+            cases = []
+            for item in response['Items']:
+                cases.append(
+                    Case(
+                        caseId=item['caseId'],
+                        business=item['business'],
+                        filingDate=datetime.fromisoformat(item['filingDate']).date(),
+                        defendant=item['defendant'],
+                        caseName=item.get('caseName'),
+                        loaded=datetime.fromisoformat(item['loaded']).date(),
+                        caseStatus=item['caseStatus'],
+                        addresses=item.get('addresses', []),
+                        other=item.get('other', {}),
+                        query_id=item['query_id'],
+                        user_status=item.get('user_status'),
+                    )
+                )
+            return cases
+        except ClientError as e:
+            print(f"Error getting cases from DynamoDB: {e}")
+            return []
+    else:
+        # SQLite implementation
+        with sqlite3.connect(CASES_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM cases")
+            rows = cursor.fetchall()
 
-    return cases
+        cases = []
+        for row in rows:
+            cases.append(
+                Case(
+                    caseId=row[0],
+                    business=row[1],
+                    filingDate=datetime.fromisoformat(row[2]).date(),
+                    defendant=row[3],
+                    caseName=row[4],
+                    loaded=datetime.fromisoformat(row[5]).date(),
+                    caseStatus=row[6],
+                    addresses=json.loads(row[7]),
+                    other=json.loads(row[8]),
+                    query_id=row[9],
+                    user_status=row[10],
+                )
+            )
+        return cases
 
 
 def get_queries() -> List[Query]:
-    with sqlite3.connect(CASES_DB) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM queries")
-        rows = cursor.fetchall()
-
-    queries = []
-    for row in rows:
-        searches = [SearchQuery(**s) for s in json.loads(row[2])]
-        queries.append(
-            Query(
-                id=row[0],
-                county=row[1],
-                searches=searches,
-                timestamp=datetime.fromisoformat(row[3]),
-                status=row[4],
-                step_function_arn=row[5],
+    if USE_DYNAMODB:
+        try:
+            response = cases_table.scan(
+                FilterExpression='item_type = :item_type',
+                ExpressionAttributeValues={':item_type': 'query'}
             )
-        )
+            
+            queries = []
+            for item in response['Items']:
+                searches = [SearchQuery(**s) for s in item['searches']]
+                queries.append(
+                    Query(
+                        id=item['query_id'],
+                        county=item['county'],
+                        searches=searches,
+                        timestamp=datetime.fromisoformat(item['timestamp']),
+                        status=item['status'],
+                        step_function_arn=item.get('step_function_arn'),
+                    )
+                )
+            return queries
+        except ClientError as e:
+            print(f"Error getting queries from DynamoDB: {e}")
+            return []
+    else:
+        # SQLite implementation
+        with sqlite3.connect(CASES_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM queries")
+            rows = cursor.fetchall()
 
-    return queries
+        queries = []
+        for row in rows:
+            searches = [SearchQuery(**s) for s in json.loads(row[2])]
+            queries.append(
+                Query(
+                    id=row[0],
+                    county=row[1],
+                    searches=searches,
+                    timestamp=datetime.fromisoformat(row[3]),
+                    status=row[4],
+                    step_function_arn=row[5],
+                )
+            )
+        return queries
 
 
 def update_case_user_status(case_id: str, status: str):
-    with sqlite3.connect(CASES_DB) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            UPDATE cases SET user_status = ? WHERE caseId = ?
-        """,
-            (status, case_id),
-        )
-        conn.commit()
+    if USE_DYNAMODB:
+        try:
+            cases_table.update_item(
+                Key={'caseId': case_id},
+                UpdateExpression='SET user_status = :status',
+                ExpressionAttributeValues={':status': status}
+            )
+        except ClientError as e:
+            print(f"Error updating case status in DynamoDB: {e}")
+    else:
+        # SQLite implementation
+        with sqlite3.connect(CASES_DB) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE cases SET user_status = ? WHERE caseId = ?
+            """,
+                (status, case_id),
+            )
+            conn.commit()

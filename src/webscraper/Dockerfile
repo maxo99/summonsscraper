@@ -1,4 +1,9 @@
-FROM amazon/aws-lambda-python:3.11-2024.01.30.10
+FROM --platform=linux/amd64 amazon/aws-lambda-python:3.11
+
+# Build arguments for versioning
+ARG VERSION=unknown
+LABEL version=${VERSION}
+LABEL service="webscraper"
 
 # Update package manager and install chrome dependencies
 RUN yum update -y && yum install -y \
@@ -7,17 +12,20 @@ RUN yum update -y && yum install -y \
     libXtst pango at-spi2-atk libXt xorg-x11-server-Xvfb \
     xorg-x11-xauth dbus-glib dbus-glib-devel nss mesa-libgbm jq unzip
 
-# Copy and run the chrome installer script
-COPY ./src/webscraper ./src/webscraper
-COPY ./src/core ./src/core
-RUN chmod +x ./src/webscraper/chrome-installer.sh
-RUN ./src/webscraper/chrome-installer.sh
-RUN rm ./src/webscraper/chrome-installer.sh
+# Copy source code and chrome installer
+COPY ./src/webscraper ${LAMBDA_TASK_ROOT}/src/webscraper
+COPY ./src/core ${LAMBDA_TASK_ROOT}/src/core
 
-# Install dependencies using uv
-COPY pyproject.toml ./
-RUN pip install uv && \
-    uv pip install --system ".[webscraper]"
+# Set working directory and install Chrome
+WORKDIR ${LAMBDA_TASK_ROOT}
+RUN chmod +x ./src/webscraper/chrome-installer.sh && \
+    ./src/webscraper/chrome-installer.sh && \
+    rm ./src/webscraper/chrome-installer.sh
+
+# Install Python dependencies
+COPY pyproject.toml ${LAMBDA_TASK_ROOT}/
+RUN pip install --upgrade pip && \
+    pip install selenium boto3 requests beautifulsoup4
 
 # Command to run the Lambda function
 CMD [ "src.webscraper.handler.lambda_handler" ]

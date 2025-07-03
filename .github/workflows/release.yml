@@ -1,9 +1,13 @@
-name: Continuous Delivery
+name: Release and Deploy
 
 on:
   push:
     branches:
       - main
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   release:
@@ -16,13 +20,12 @@ jobs:
       id-token: write
       contents: write
 
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+
     steps:
-      # Note: We checkout the repository at the branch that triggered the workflow
-      # with the entire history to ensure to match PSR's release branch detection
-      # and history evaluation.
-      # However, we forcefully reset the branch to the workflow sha because it is
-      # possible that the branch was updated while the workflow was running. This
-      # prevents accidentally releasing un-evaluated changes.
       - name: Setup | Checkout Repository on Release Branch
         uses: actions/checkout@v4
         with:
@@ -34,13 +37,6 @@ jobs:
           git reset --hard ${{ github.sha }}
 
       - name: Evaluate | Verify upstream has NOT changed
-        # Last chance to abort before causing an error as another PR/push was applied to
-        # the upstream branch while this workflow was running. This is important
-        # because we are committing a version change (--commit). You may omit this step
-        # if you have 'commit: false' in your configuration.
-        #
-        # You may consider moving this to a repo script and call it from this step instead
-        # of writing it in-line.
         shell: bash
         run: |
           set +o pipefail
@@ -74,7 +70,6 @@ jobs:
 
       - name: Action | Semantic Version Release
         id: release
-        # Adjust tag with desired version if applicable.
         uses: python-semantic-release/python-semantic-release@v9.21.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -87,3 +82,166 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ steps.release.outputs.tag }}
+
+  # Deploy infrastructure with OpenTofu
+  deploy-infrastructure:
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+      
+    outputs:
+      ec2_public_ip: ${{ steps.tofu_outputs.outputs.ec2_public_ip }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions
+          aws-region: us-east-1
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: "1.6.0"
+
+      - name: OpenTofu Init
+        working-directory: infrastructure
+        run: tofu init
+
+      - name: OpenTofu Plan
+        working-directory: infrastructure
+        run: |
+          tofu plan \
+            -var="repository_name=${{ github.repository }}" \
+            -var="environment=prod" \
+            -out=tfplan
+
+      - name: OpenTofu Apply
+        working-directory: infrastructure
+        run: tofu apply tfplan
+
+      - name: Get OpenTofu Outputs
+        id: tofu_outputs
+        working-directory: infrastructure
+        run: |
+          echo "ec2_public_ip=$(tofu output -raw ec2_public_ip)" >> $GITHUB_OUTPUT
+          echo "s3_bucket_name=$(tofu output -raw s3_bucket_name)" >> $GITHUB_OUTPUT
+          echo "dynamodb_table_name=$(tofu output -raw dynamodb_table_name)" >> $GITHUB_OUTPUT
+
+  # Build and push Lambda containers (depends on infrastructure)
+  build-lambda-containers:
+    needs: [release, deploy-infrastructure]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [webscraper, pdf_parser]
+    
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.release.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push Lambda container
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./src/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.release.outputs.version }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions
+          aws-region: us-east-1
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name summonsscraper-${{ matrix.service }}-prod \
+            --image-uri ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-${{ matrix.service }}:${{ needs.release.outputs.version }}
+
+  # Deploy UI to EC2
+  deploy-ui:
+    needs: [release, deploy-infrastructure, build-lambda-containers]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: GitHubActions
+          aws-region: us-east-1
+
+      - name: Deploy to EC2 via SSM
+        run: |
+          # Send deployment command via AWS Systems Manager
+          COMMAND_ID=$(aws ssm send-command \
+            --targets "Key=tag:Name,Values=summonsscraper-streamlit-prod" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["cd /opt/summonsscraper && git fetch origin && git checkout ${{ needs.release.outputs.tag }} && /opt/deploy.sh"]' \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          echo "Deployment command ID: $COMMAND_ID"
+          
+          # Wait for command to complete
+          aws ssm wait command-executed \
+            --command-id $COMMAND_ID \
+            --instance-id $(aws ec2 describe-instances \
+              --filters "Name=tag:Name,Values=summonsscraper-streamlit-prod" "Name=instance-state-name,Values=running" \
+              --query 'Reservations[0].Instances[0].InstanceId' \
+              --output text)
+          
+          echo "Deployment completed!"
+          echo "Streamlit URL: http://${{ needs.deploy-infrastructure.outputs.ec2_public_ip }}:8501"
