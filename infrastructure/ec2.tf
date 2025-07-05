@@ -84,12 +84,10 @@ resource "aws_instance" "streamlit" {
     repository_name  = var.repository_name
   }))
 
-  # Prevent unnecessary instance recreation
+  # Allow necessary recreation for AMI/user_data changes
   lifecycle {
     create_before_destroy = true
     ignore_changes = [
-      # ami,                    # Don't recreate when AMI updates
-      # user_data,           # Temporarily commented out to deploy user_data changes
       key_name,              # Don't recreate when key changes
     ]
   }

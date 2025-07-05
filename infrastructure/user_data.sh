@@ -72,12 +72,12 @@ After=network.target
 Type=simple
 User=ec2-user
 WorkingDirectory=/opt/summonsscraper
-Environment=PATH=/home/ec2-user/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/home/ec2-user/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=AWS_DEFAULT_REGION=${aws_region}
 Environment=APP_AWS_REGION=${aws_region}
 Environment=S3_BUCKET_NAME=${s3_bucket_name}
 Environment=DYNAMODB_TABLE_NAME=${dynamodb_table}
-ExecStart=/home/ec2-user/.cargo/bin/uv run --extra ui streamlit run src/ui/main.py --server.port 8501 --server.address 0.0.0.0
+ExecStart=uv run --extra ui streamlit run src/ui/main.py --server.port 8501 --server.address 0.0.0.0
 Restart=always
 RestartSec=3
 
@@ -93,7 +93,7 @@ fi
 if ! check_step "app-setup"; then
     log "📦 Installing application dependencies..."
     cd /opt/summonsscraper
-    sudo -u ec2-user bash -c 'export PATH="/home/ec2-user/.cargo/bin:$PATH" && /home/ec2-user/.cargo/bin/uv sync --extra ui'
+    sudo -u ec2-user bash -c 'export PATH="/home/ec2-user/.local/bin:$PATH" && /home/ec2-user/.local/bin/uv sync --extra ui'
 
     log "🚀 Starting Streamlit service..."
     systemctl start streamlit
@@ -111,8 +111,8 @@ cd /opt/summonsscraper
 git pull origin main
 
 # Install/update dependencies using uv
-export PATH="/home/ec2-user/.cargo/bin:$PATH"
-/home/ec2-user/.cargo/bin/uv sync --extra ui
+export PATH="/home/ec2-user/.local/bin:$PATH"
+/home/ec2-user/.local/bin/uv sync --extra ui
 
 # Restart the service
 sudo systemctl restart streamlit
