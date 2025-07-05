@@ -1,35 +1,69 @@
 #!/bin/bash
-yum update -y
+# Optimized user_data script for Amazon Linux 2023
 
-# Install Python 3.11
-yum groupinstall -y "Development Tools"
-yum install -y openssl-devel bzip2-devel libffi-devel xz-devel sqlite-devel
+# Enable logging
+exec > >(tee /var/log/user-data.log)
+exec 2>&1
 
-# Download and compile Python 3.11
-cd /opt
-wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar xzf Python-3.11.9.tgz
-cd Python-3.11.9
-./configure --enable-optimizations
-make altinstall
+set -e
 
-# Create symlinks
-ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
-ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip3
+# Function to log with timestamp
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
 
-# Install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> /home/ec2-user/.bashrc
+# Function to check if a step was completed
+check_step() {
+    [ -f "/var/log/setup-$1.done" ]
+}
 
-# Install git
-yum install -y git
+# Function to mark step as completed
+mark_step() {
+    touch "/var/log/setup-$1.done"
+    log "✅ Step $1 completed"
+}
 
-# Create application directory
-mkdir -p /opt/summonsscraper
-chown ec2-user:ec2-user /opt/summonsscraper
+log "🚀 Starting user_data script for Amazon Linux 2023"
 
-# Create systemd service for Streamlit
-cat > /etc/systemd/system/streamlit.service << EOF
+# Step 1: System update
+if ! check_step "system-update"; then
+    log "📦 Updating system packages..."
+    dnf update -y
+    mark_step "system-update"
+fi
+
+# Step 2: Install basic development tools
+if ! check_step "dev-tools"; then
+    log "🔧 Installing development tools..."
+    dnf groupinstall -y "Development Tools"
+    dnf install -y openssl-devel bzip2-devel libffi-devel xz-devel sqlite-devel git
+    mark_step "dev-tools"
+fi
+
+# Step 3: Install uv (Python package manager)
+if ! check_step "uv-install"; then
+    log "📦 Installing uv..."
+    sudo -u ec2-user bash -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+    mark_step "uv-install"
+fi
+
+# Step 4: Setup application directory and clone repository
+if ! check_step "repo-clone"; then
+    log "📁 Setting up application directory..."
+    mkdir -p /opt/summonsscraper
+    chown ec2-user:ec2-user /opt/summonsscraper
+    
+    log "📥 Cloning repository..."
+    cd /opt/summonsscraper
+    sudo -u ec2-user git clone https://github.com/${repository_name}.git .
+    chown -R ec2-user:ec2-user /opt/summonsscraper
+    mark_step "repo-clone"
+fi
+
+# Step 5: Create systemd service
+if ! check_step "systemd-service"; then
+    log "⚙️ Creating systemd service..."
+    cat > /etc/systemd/system/streamlit.service << EOF
 [Unit]
 Description=Streamlit Application
 After=network.target
@@ -43,34 +77,50 @@ Environment=AWS_DEFAULT_REGION=${aws_region}
 Environment=APP_AWS_REGION=${aws_region}
 Environment=S3_BUCKET_NAME=${s3_bucket_name}
 Environment=DYNAMODB_TABLE_NAME=${dynamodb_table}
-ExecStart=/home/ec2-user/.cargo/bin/uv run streamlit run src/ui/main.py --server.port 8501 --server.address 0.0.0.0
+ExecStart=/home/ec2-user/.cargo/bin/uv run --extra ui streamlit run src/ui/main.py --server.port 8501 --server.address 0.0.0.0
 Restart=always
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
+    
+    systemctl enable streamlit
+    mark_step "systemd-service"
+fi
 
-# Enable the service (but don't start it yet - will be started after deployment)
-systemctl enable streamlit
+# Step 6: Install dependencies and start service
+if ! check_step "app-setup"; then
+    log "📦 Installing application dependencies..."
+    cd /opt/summonsscraper
+    sudo -u ec2-user bash -c 'export PATH="/home/ec2-user/.cargo/bin:$PATH" && /home/ec2-user/.cargo/bin/uv sync --extra ui'
 
-# Create deployment script
-cat > /opt/deploy.sh << 'EOF'
+    log "🚀 Starting Streamlit service..."
+    systemctl start streamlit
+    mark_step "app-setup"
+fi
+
+# Step 7: Create deployment script
+if ! check_step "deploy-script"; then
+    log "📝 Creating deployment script..."
+    cat > /opt/deploy.sh << 'EOF'
 #!/bin/bash
 cd /opt/summonsscraper
 
 # Pull latest code
 git pull origin main
 
-# Install/update dependencies
-/home/ec2-user/.cargo/bin/uv pip install ".[ui]"
+# Install/update dependencies using uv
+export PATH="/home/ec2-user/.cargo/bin:$PATH"
+/home/ec2-user/.cargo/bin/uv sync --extra ui
 
 # Restart the service
 sudo systemctl restart streamlit
 EOF
+    
+    chmod +x /opt/deploy.sh
+    chown ec2-user:ec2-user /opt/deploy.sh
+    mark_step "deploy-script"
+fi
 
-chmod +x /opt/deploy.sh
-chown ec2-user:ec2-user /opt/deploy.sh
-
-# Log completion
-echo "User data script completed at $(date)" >> /var/log/user-data.log
+log "✅ User data script completed successfully at $(date)"

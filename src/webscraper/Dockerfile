@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 amazon/aws-lambda-python:3.11
+FROM amazon/aws-lambda-python:3.11
 
 # Build arguments for versioning
 ARG VERSION=unknown

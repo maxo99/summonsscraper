@@ -5,7 +5,7 @@ data "aws_ami" "amazon_linux" {
 
   filter {
     name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+    values = ["al2023-ami-*-x86_64"]
   }
 
   filter {
@@ -66,9 +66,14 @@ resource "aws_instance" "streamlit" {
       spot_options {
         spot_instance_type             = "persistent"
         instance_interruption_behavior = "stop"
+        max_price                      = "0.02"  # Set a reasonable max price
       }
     }
   }
+
+  # Prevent accidental termination
+  disable_api_termination = false
+  disable_api_stop        = false
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
     project_name     = var.project_name
@@ -76,20 +81,35 @@ resource "aws_instance" "streamlit" {
     s3_bucket_name   = aws_s3_bucket.pdf_storage.bucket
     dynamodb_table   = aws_dynamodb_table.case_data.name
     aws_region       = var.aws_region
+    repository_name  = var.repository_name
   }))
 
+  # Prevent unnecessary instance recreation
+  lifecycle {
+    create_before_destroy = true
+    ignore_changes = [
+      # ami,                    # Don't recreate when AMI updates
+      # user_data,           # Temporarily commented out to deploy user_data changes
+      key_name,              # Don't recreate when key changes
+    ]
+  }
+
   tags = {
-    Name         = "${var.project_name}-streamlit-${var.environment}"
-    AutoShutdown = var.auto_shutdown_enabled ? "true" : "false"
+    Name = "${var.project_name}-streamlit-${var.environment}"
   }
 }
 
 # Elastic IP for consistent access
 resource "aws_eip" "streamlit_eip" {
-  instance = aws_instance.streamlit.id
-  domain   = "vpc"
+  domain = "vpc"
 
   tags = {
     Name = "${var.project_name}-streamlit-eip-${var.environment}"
   }
+}
+
+# Associate EIP with the instance
+resource "aws_eip_association" "streamlit_eip_assoc" {
+  instance_id   = aws_instance.streamlit.id
+  allocation_id = aws_eip.streamlit_eip.id
 }

@@ -4,18 +4,18 @@ output "ec2_instance_id" {
 }
 
 output "ec2_public_ip" {
-  description = "Public IP address of the EC2 instance"
-  value       = aws_instance.streamlit.public_ip
+  description = "Public IP address of the EC2 instance (Elastic IP)"
+  value       = aws_eip.streamlit_eip.public_ip
 }
 
 output "ec2_public_dns" {
   description = "Public DNS name of the EC2 instance"
-  value       = aws_instance.streamlit.public_dns
+  value       = aws_eip.streamlit_eip.public_dns
 }
 
 output "streamlit_url" {
   description = "URL to access the Streamlit application"
-  value       = "http://${aws_instance.streamlit.public_dns}:8501"
+  value       = "http://${aws_eip.streamlit_eip.public_ip}:8501"
 }
 
 output "s3_bucket_name" {

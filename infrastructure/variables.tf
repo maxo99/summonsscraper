@@ -31,7 +31,7 @@ variable "allowed_cidr_blocks" {
 variable "key_pair_name" {
   description = "Name of the AWS key pair for EC2 access"
   type        = string
-  default     = "summonsscraper-key"
+  default     = "summonsscraper-key2"
 }
 
 variable "container_registry" {
@@ -52,20 +52,3 @@ variable "enable_spot_instance" {
   default     = true
 }
 
-variable "auto_shutdown_enabled" {
-  description = "Enable automatic shutdown of EC2 during off-hours"
-  type        = bool
-  default     = true
-}
-
-variable "shutdown_schedule" {
-  description = "Cron expression for when to shutdown EC2 (UTC time)"
-  type        = string
-  default     = "0 22 * * ? *"  # 10 PM UTC daily
-}
-
-variable "startup_schedule" {
-  description = "Cron expression for when to start EC2 (UTC time)"
-  type        = string
-  default     = "0 8 ? * MON-FRI *"  # 8 AM UTC, Monday-Friday
-}
