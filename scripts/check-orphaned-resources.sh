@@ -4,6 +4,15 @@
 
 set -e
 
+# Get the script directory and infrastructure directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR="$(cd "${SCRIPT_DIR}/../infrastructure" && pwd)"
+
+echo "📂 Using infrastructure directory: $INFRA_DIR"
+
+# Change to infrastructure directory for tofu commands
+cd "$INFRA_DIR"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

@@ -4,6 +4,15 @@
 
 set -e
 
+# Get the script directory and infrastructure directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INFRA_DIR="$(cd "${SCRIPT_DIR}/../infrastructure" && pwd)"
+
+echo "📂 Using infrastructure directory: $INFRA_DIR"
+
+# Change to infrastructure directory for tofu commands
+cd "$INFRA_DIR"
+
 echo "⚠️  WARNING: This will DELETE existing AWS resources!"
 echo "Resources to be deleted:"
 echo "  - ECR repositories (and all container images)"
