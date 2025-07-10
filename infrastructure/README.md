@@ -26,7 +26,6 @@ This directory contains the OpenTofu configuration for deploying the AWS infrast
 - **DynamoDB**: Storage for parsed data
 - **IAM Roles**: Proper permissions for all components
 - **VPC/Security Groups**: Network configuration
-- **Auto-Scheduler**: Optional EC2 auto-shutdown for cost savings
 
 ## Cost Optimization Features
 
